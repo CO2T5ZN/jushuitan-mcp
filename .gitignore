@@ -1,0 +1,17 @@
+# dependencies / build
+node_modules/
+dist/
+
+# fetched & generated data — Jushuitan doc content is NOT distributed with this repo.
+# run `npm run fetch` to generate it locally.
+data/
+jushuitan-api-docs/
+
+# local machine-specific MCP client config
+.zcode/config.json
+.mcp.json
+
+# misc
+*.log
+.env
+.DS_Store

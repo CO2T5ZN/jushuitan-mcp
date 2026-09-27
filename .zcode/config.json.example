@@ -1,0 +1,14 @@
+{
+  "mcp": {
+    "servers": {
+      "jushuitan-mcp": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["<REPO>/dist/index.js"],
+        "env": {
+          "JUSHUITAN_MCP_DATA": "<REPO>/data/jushuitan-docs.json"
+        }
+      }
+    }
+  }
+}
