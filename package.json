@@ -16,7 +16,10 @@
     "build": "tsc",
     "fetch": "node dist/fetch-cli.js",
     "start": "node dist/index.js",
-    "test": "npm run build && node scripts/smoke-test.mjs"
+    "start:http": "node dist/index.js --transport=http",
+    "test": "npm run build && node scripts/smoke-test.mjs && node scripts/smoke-test-http.mjs",
+    "test:stdio": "npm run build && node scripts/smoke-test.mjs",
+    "test:http": "npm run build && node scripts/smoke-test-http.mjs"
   },
   "keywords": [
     "mcp",

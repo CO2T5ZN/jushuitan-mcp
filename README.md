@@ -54,7 +54,7 @@ npm run fetch   # 拉取文档数据到 data/jushuitan-docs.json（约 10-30 秒
 
 通用前提：
 
-- 服务器以 **stdio** 方式启动：`node <仓库绝对路径>/dist/index.js`。配置中请使用**绝对路径**。
+- 本节配置的服务器以 **stdio** 方式启动：`node <仓库绝对路径>/dist/index.js`。配置中请使用**绝对路径**。想改用 HTTP/SSE 见「[HTTP / SSE 远程模式](#http--sse-远程模式)」。
 - 首次使用前先在仓库目录执行 `npm run fetch` 生成数据快照；如果没生成，也可以直接让 Agent 调用 `refresh_data` 工具在线拉取。
 - 建议在 `env` 中设置 `JUSHUITAN_MCP_DATA` 指向数据文件绝对路径（IDE 启动 MCP 时不一定以仓库为工作目录）。
 - **Windows 路径注意**：JSON 字符串里 `\` 是转义符，`"D:\Tools\..."` 会因非法转义（如 `\T`）导致解析失败、无法保存。请改用正斜杠 `"D:/Tools/..."`，或写成双反斜杠 `"D:\\Tools\\..."`。
@@ -160,6 +160,98 @@ npm run fetch   # 拉取文档数据到 data/jushuitan-docs.json（约 10-30 秒
 
 npx 方式首次使用时，若无本地数据，可直接让 Agent 调用 `refresh_data` 工具在线拉取。
 
+### 传输方式
+
+| 方式 | 说明 | 适用场景 |
+| --- | --- | --- |
+| **stdio**（默认） | 客户端 spawn 进程，JSON-RPC over stdin/stdout | 本地单人使用，配置最简单（下文的 MCP 配置即此方式） |
+| **Streamable HTTP** | 单个端点 `POST/GET/DELETE /mcp`，有状态会话 | 现代 MCP 客户端、多客户端共享、容器内/远程部署 |
+| **HTTP + SSE**（旧版） | `GET /sse` 建立事件流 + `POST /messages?sessionId=…` | 仅支持 2024-11-05 传输的老客户端 |
+
+两种 HTTP 方式可同时开启：stdio 之外的所有配置见下节。
+
+### HTTP / SSE 远程模式
+
+服务启动（等价于 `node dist/index.js --transport=http`）：
+
+```bash
+npm run start:http                       # 默认 http://127.0.0.1:3000/mcp
+node dist/index.js --transport=http --port=8080
+```
+
+启动后可用端点：
+
+| 端点 | 方法 | 说明 |
+| --- | --- | --- |
+| `/mcp` | POST / GET / DELETE | Streamable HTTP；initialize 响应带回 `Mcp-Session-Id`，后续请求带上它 |
+| `/sse` | GET | 旧版 SSE 握手，首帧 `event: endpoint` 给出回传地址 |
+| `/messages` | POST | 旧版 SSE 的消息回传通道，需 `?sessionId=…` |
+| `/health`、`/healthz` | GET | 健康检查：传输方式、活跃会话数、端点清单 |
+
+启动参数（CLI 覆盖环境变量，环境变量覆盖默认值）：
+
+| CLI 参数 | 环境变量 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `--host=<host>` | `HOST` / `JUSHUITAN_MCP_HOST` | `127.0.0.1` | 监听地址；要对外暴露需同时放开 Host 白名单 |
+| `--port=<port>` | `PORT` / `JUSHUITAN_MCP_PORT` | `3000` | 监听端口 |
+| `--path=<path>` | `JUSHUITAN_MCP_HTTP_PATH` | `/mcp` | Streamable HTTP 端点路径 |
+| `--stateless` | `JUSHUITAN_MCP_STATELESS` | 关闭 | 无状态：每请求新建会话，不复用 `Mcp-Session-Id`，适合多实例/负载均衡 |
+| `--json-response` | `JUSHUITAN_MCP_JSON_RESPONSE` | 关闭 | Streamable HTTP 用普通 JSON 响应代替 SSE 流 |
+| `--no-sse` | `JUSHUITAN_MCP_LEGACY_SSE=0` | 开启 | 关闭旧版 `/sse` + `/messages` |
+| `--allowed-hosts=<a,b,…>` | `JUSHUITAN_MCP_ALLOWED_HOSTS` | localhost 系列 | Host/Origin 白名单（DNS 防重绑）；`*` 表示不校验 |
+| `--session-timeout=<分钟>` | `JUSHUITAN_MCP_SESSION_TIMEOUT_MINUTES` | `30` | Streamable HTTP 会话空闲回收时间，`0` = 不回收（stateless 模式无此问题） |
+
+> **安全提示**：HTTP 模式默认只监听 `127.0.0.1`，且只接受 Host/Origin 为 `localhost`、`127.0.0.1`、`[::1]` 的请求（防 DNS rebinding）。要监听 `0.0.0.0` 或用域名/IP 反代访问，必须显式放开，例如 `--allowed-hosts=example.com,192.168.1.10` 或 `--allowed-hosts=*`（不校验，请自行做好网络隔离）。日志输出到 stderr，`/health` 不返回任何文档数据。
+
+客户端侧改用 URL 而非 `command` 即可（以下示例假设服务已在 `http://127.0.0.1:3000` 运行）：
+
+**CodeBuddy / Cursor / Cline（Streamable HTTP）：**
+
+```json
+{
+  "mcpServers": {
+    "jushuitan-mcp": {
+      "url": "http://127.0.0.1:3000/mcp"
+    }
+  }
+}
+```
+
+**老客户端（HTTP + SSE）：**
+
+```json
+{
+  "mcpServers": {
+    "jushuitan-mcp": {
+      "url": "http://127.0.0.1:3000/sse"
+    }
+  }
+}
+```
+
+**ZCode**（URL 型 MCP 同样在 Settings → MCP 添加）：
+
+```json
+{
+  "jushuitan-mcp": {
+    "type": "streamableHttp",
+    "url": "http://127.0.0.1:3000/mcp"
+  }
+}
+```
+
+自测（不依赖客户端）：
+
+```bash
+curl http://127.0.0.1:3000/health
+curl -N -X POST http://127.0.0.1:3000/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
+```
+
+Windows 下若出现 `listen EACCES`，说明端口落在系统保留区间（Hyper-V 动态端口），换一个端口即可。
+
 ### 数据存放路径
 
 快照默认写入/读取 `data/jushuitan-docs.json`，查找优先级：
@@ -182,16 +274,19 @@ get_api_doc(api="1")               → 按 docId 读完整文档
 ### 开发
 
 ```bash
-npm run build   # tsc 编译到 dist/
-npm test        # 端到端 smoke test（stdio JSON-RPC，16 项断言）
-npm run fetch   # 重新抓取数据
+npm run build      # tsc 编译到 dist/
+npm test           # stdio（16 项）+ HTTP/SSE（28 项）两套端到端 smoke test
+npm run test:http  # 只跑 HTTP 传输测试
+npm run start:http # 以 HTTP 方式启动（默认 http://127.0.0.1:3000/mcp）
+npm run fetch      # 重新抓取数据
 ```
 
 ### 目录结构
 
 ```
 src/
-├── index.ts       # stdio 入口
+├── index.ts       # CLI 入口：stdio（默认）或 --transport=http
+├── http-server.ts # Streamable HTTP（/mcp）与旧版 HTTP+SSE（/sse、/messages）
 ├── server.ts      # MCP Server 与工具注册
 ├── tools.ts       # 5 个工具的定义与处理
 ├── render.ts      # Markdown 渲染
@@ -200,7 +295,9 @@ src/
 ├── schema.ts      # JSON Schema -> 扁平参数表
 ├── text.ts        # 富文本/表格转义
 └── types.ts
-scripts/smoke-test.mjs
+scripts/
+├── smoke-test.mjs      # stdio 端到端测试（16 项断言）
+└── smoke-test-http.mjs # Streamable HTTP / SSE 端到端测试（28 项断言）
 ```
 
 ### 声明
@@ -212,6 +309,8 @@ scripts/smoke-test.mjs
 An MCP server that exposes the **Jushuitan Open Platform API documentation** (an ERP/SaaS order platform widely used in China) to AI agents: 20 categories / ~175 APIs with routes, base URLs, common params, request/response param tables (flattened from official JSON Schemas), error codes, and request/response/exception examples.
 
 The repo ships **code only** — doc content is fetched from the platform's public doc endpoint via `npm run fetch` and stored locally (`data/jushuitan-docs.json`, gitignored). Tools: `list_categories`, `list_apis`, `search_apis`, `get_api_doc`, `refresh_data`.
+
+Two transports: **stdio** (default) and **HTTP** (`npm run start:http`) which serves **Streamable HTTP** at `/mcp` plus the legacy **HTTP+SSE** pair `/sse` + `/messages`, with a `/health` endpoint. HTTP mode binds `127.0.0.1:3000` and enforces a localhost-only Host/Origin allow-list unless `--allowed-hosts` widens it.
 
 See the 中文 section above for full instructions; configuration is identical apart from language. To auto-install, copy the prompt in the 「一键安装」 block above and paste it into your AI agent.
 

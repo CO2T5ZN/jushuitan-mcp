@@ -11,6 +11,9 @@ jushuitan-api-docs/
 .zcode/config.json
 .mcp.json
 
+# local agent working memory (per-machine notes — not distributed)
+.workbuddy/
+
 # misc
 *.log
 .env
